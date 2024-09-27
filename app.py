@@ -1,91 +1,53 @@
-from flask import Flask, render_template, request, redirect, url_for, session, flash
-from werkzeug.security import generate_password_hash, check_password_hash
-import sqlite3
-import os
-
+from flask import Flask, render_template, request
+import numpy as np
+import pandas as pd
+from sklearn.tree import DecisionTreeClassifier
 
 app = Flask(__name__)
 
-app.secret_key = os.getenv('SECRET_KEY', 'fallback_secret')
-def init_db():
-    conn = sqlite3.connect('users.db')
-    c = conn.cursor()
-    # Create a table for users
-    c.execute('''CREATE TABLE IF NOT EXISTS users
-                 (id INTEGER PRIMARY KEY AUTOINCREMENT,
-                  username TEXT UNIQUE,
-                  password TEXT)''')
-    conn.commit()
-    conn.close()
+# Sample weather dataset (Temperature, Humidity, Wind Speed, Rain)
+data = {
+    'Temperature': [30, 25, 20, 35, 18, 28, 22, 24, 26, 31],
+    'Humidity': [70, 65, 90, 50, 80, 60, 85, 75, 65, 55],
+    'Wind Speed': [12, 8, 10, 15, 5, 9, 14, 6, 10, 13],
+    'Rain': [1, 0, 1, 0, 1, 0, 1, 0, 0, 0]
+}
 
-# Initialize the database
-init_db()
-# Connect to SQLite database
-def get_db_connection():
-    conn = sqlite3.connect('users.db')
-    conn.row_factory = sqlite3.Row
-    return conn
+# Convert to DataFrame
+df = pd.DataFrame(data)
 
-# Home page after login
+# Features and target
+X = df[['Temperature', 'Humidity', 'Wind Speed']]
+y = df['Rain']
+
+# Train Decision Tree model
+dt_classifier = DecisionTreeClassifier()
+dt_classifier.fit(X, y)
+
 @app.route('/')
-def home():
-    if 'username' in session:
-        return f"Hello, {session['username']}! Welcome to the home page."
-    return redirect(url_for('login'))
+def index():
+    return render_template('index.html')
 
-# Signup page
-@app.route('/signup', methods=['GET', 'POST'])
-def signup():
-    if request.method == 'POST':
-        username = request.form['username']
-        password = request.form['password']
-        
-        if not username or not password:
-            flash('Username and password are required.')
-            return redirect(url_for('signup'))
-        
-        hashed_password = generate_password_hash(password, method='pbkdf2:sha256')
+@app.route('/predict', methods=['POST'])
+def predict():
+    # Get form data
+    temperature = float(request.form['temperature'])
+    humidity = float(request.form['humidity'])
+    wind_speed = float(request.form['wind_speed'])
 
-        # Insert user into the database
-        try:
-            conn = get_db_connection()
-            conn.execute('INSERT INTO users (username, password) VALUES (?, ?)', (username, hashed_password))
-            conn.commit()
-            conn.close()
-            flash('Signup successful! Please log in.')
-            return redirect(url_for('login'))
-        except sqlite3.IntegrityError:
-            flash('Username already exists. Please choose a different username.')
-            return redirect(url_for('signup'))
-    
-    return render_template('signup.html')
+    # Create input array for prediction
+    input_data = np.array([[temperature, humidity, wind_speed]])
 
-# Login page
-@app.route('/login', methods=['GET', 'POST'])
-def login():
-    if request.method == 'POST':
-        username = request.form['username']
-        password = request.form['password']
+    # Perform prediction
+    prediction = dt_classifier.predict(input_data)[0]
 
-        conn = get_db_connection()
-        user = conn.execute('SELECT * FROM users WHERE username = ?', (username,)).fetchone()
-        conn.close()
+    # Return prediction result
+    if prediction == 1:
+        result = "Yes, it will rain."
+    else:
+        result = "No, it will not rain."
 
-        if user and check_password_hash(user['password'], password):
-            session['username'] = user['username']
-            flash('Login successful!')
-            return redirect(url_for('home'))
-        else:
-            flash('Invalid username or password.')
-    
-    return render_template('login.html')
+    return render_template('result.html', result=result)
 
-# Logout route
-@app.route('/logout')
-def logout():
-    session.pop('username', None)
-    flash('You have been logged out.')
-    return redirect(url_for('login'))
-
-if __name__ == "__main__":
+if __name__ == '__main__':
     app.run(debug=True)
